@@ -14,32 +14,32 @@ const pool = new Pool({
 async function initDB() {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS py_heats (
-      id TEXT PRIMARY KEY,
-      data JSONB NOT NULL,
-      created_at TIMESTAMPTZ DEFAULT NOW(),
-      updated_at TIMESTAMPTZ DEFAULT NOW()
+      id TEXT PRIMARY KEY, data JSONB NOT NULL,
+      created_at TIMESTAMPTZ DEFAULT NOW(), updated_at TIMESTAMPTZ DEFAULT NOW()
     );
     CREATE TABLE IF NOT EXISTS py_shifts (
-      id TEXT PRIMARY KEY,
-      data JSONB NOT NULL,
-      created_at TIMESTAMPTZ DEFAULT NOW(),
-      updated_at TIMESTAMPTZ DEFAULT NOW()
+      id TEXT PRIMARY KEY, data JSONB NOT NULL,
+      created_at TIMESTAMPTZ DEFAULT NOW(), updated_at TIMESTAMPTZ DEFAULT NOW()
     );
     CREATE TABLE IF NOT EXISTS py_hourly_logs (
-      id TEXT PRIMARY KEY,
-      data JSONB NOT NULL,
-      created_at TIMESTAMPTZ DEFAULT NOW()
+      id TEXT PRIMARY KEY, data JSONB NOT NULL, created_at TIMESTAMPTZ DEFAULT NOW()
     );
     CREATE TABLE IF NOT EXISTS py_checklists (
-      id TEXT PRIMARY KEY,
-      data JSONB NOT NULL,
-      created_at TIMESTAMPTZ DEFAULT NOW(),
-      updated_at TIMESTAMPTZ DEFAULT NOW()
+      id TEXT PRIMARY KEY, data JSONB NOT NULL,
+      created_at TIMESTAMPTZ DEFAULT NOW(), updated_at TIMESTAMPTZ DEFAULT NOW()
     );
     CREATE TABLE IF NOT EXISTS py_settings (
-      key TEXT PRIMARY KEY,
-      data JSONB NOT NULL,
-      updated_at TIMESTAMPTZ DEFAULT NOW()
+      key TEXT PRIMARY KEY, data JSONB NOT NULL, updated_at TIMESTAMPTZ DEFAULT NOW()
+    );
+    CREATE TABLE IF NOT EXISTS py_clients (
+      id TEXT PRIMARY KEY, data JSONB NOT NULL,
+      created_at TIMESTAMPTZ DEFAULT NOW(), updated_at TIMESTAMPTZ DEFAULT NOW()
+    );
+    CREATE TABLE IF NOT EXISTS py_sales (
+      id TEXT PRIMARY KEY, data JSONB NOT NULL, created_at TIMESTAMPTZ DEFAULT NOW()
+    );
+    CREATE TABLE IF NOT EXISTS py_targets (
+      key TEXT PRIMARY KEY, data JSONB NOT NULL, updated_at TIMESTAMPTZ DEFAULT NOW()
     );
   `);
   console.log('DB tables ready');
@@ -139,10 +139,66 @@ app.post('/settings', async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
+// ── CLIENTS ──
+app.get('/clients', async (req, res) => {
+  try { const { rows } = await pool.query('SELECT data FROM py_clients ORDER BY created_at DESC'); res.json(rows.map(r => r.data)); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.post('/clients', async (req, res) => {
+  try {
+    const items = Array.isArray(req.body) ? req.body : [req.body];
+    for (const c of items) {
+      if (!c.id) continue;
+      await pool.query(`INSERT INTO py_clients(id,data) VALUES($1,$2) ON CONFLICT(id) DO UPDATE SET data=$2,updated_at=NOW()`, [c.id, JSON.stringify(c)]);
+    }
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.delete('/clients/:id', async (req, res) => {
+  try { await pool.query('DELETE FROM py_clients WHERE id=$1', [req.params.id]); res.json({ ok: true }); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ── SALES ──
+app.get('/sales', async (req, res) => {
+  try { const { rows } = await pool.query('SELECT data FROM py_sales ORDER BY created_at DESC'); res.json(rows.map(r => r.data)); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.post('/sales', async (req, res) => {
+  try {
+    const items = Array.isArray(req.body) ? req.body : [req.body];
+    for (const s of items) {
+      if (!s.id) continue;
+      await pool.query(`INSERT INTO py_sales(id,data) VALUES($1,$2) ON CONFLICT(id) DO NOTHING`, [s.id, JSON.stringify(s)]);
+    }
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.delete('/sales/:id', async (req, res) => {
+  try { await pool.query('DELETE FROM py_sales WHERE id=$1', [req.params.id]); res.json({ ok: true }); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ── TARGETS ──
+app.get('/targets', async (req, res) => {
+  try {
+    const { rows } = await pool.query('SELECT key, data FROM py_targets');
+    const out = {}; rows.forEach(r => { out[r.key] = r.data; }); res.json(out);
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+app.post('/targets', async (req, res) => {
+  try {
+    for (const [key, val] of Object.entries(req.body)) {
+      await pool.query(`INSERT INTO py_targets(key,data) VALUES($1,$2) ON CONFLICT(key) DO UPDATE SET data=$2,updated_at=NOW()`, [key, JSON.stringify(val)]);
+    }
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 // ── FULL SYNC ──
 app.post('/sync', async (req, res) => {
   try {
-    const { heats, shifts, hourlyLogs, checklists, settings } = req.body;
+    const { heats, shifts, hourlyLogs, checklists, settings, clients, sales, targets } = req.body;
     if (heats?.length) for (const h of heats) {
       if (!h?.id) continue;
       await pool.query(`INSERT INTO py_heats(id,data) VALUES($1,$2) ON CONFLICT(id) DO UPDATE SET data=$2,updated_at=NOW()`, [h.id, JSON.stringify(h)]);
@@ -165,6 +221,19 @@ app.post('/sync', async (req, res) => {
         await pool.query(`INSERT INTO py_settings(key,data) VALUES($1,$2) ON CONFLICT(key) DO UPDATE SET data=$2,updated_at=NOW()`, [key, JSON.stringify(data)]);
       }
     }
+    if (clients?.length) for (const c of clients) {
+      if (!c?.id) continue;
+      await pool.query(`INSERT INTO py_clients(id,data) VALUES($1,$2) ON CONFLICT(id) DO UPDATE SET data=$2,updated_at=NOW()`, [c.id, JSON.stringify(c)]);
+    }
+    if (sales?.length) for (const s of sales) {
+      if (!s?.id) continue;
+      await pool.query(`INSERT INTO py_sales(id,data) VALUES($1,$2) ON CONFLICT(id) DO NOTHING`, [s.id, JSON.stringify(s)]);
+    }
+    if (targets && typeof targets === 'object') {
+      for (const [key, val] of Object.entries(targets)) {
+        await pool.query(`INSERT INTO py_targets(key,data) VALUES($1,$2) ON CONFLICT(key) DO UPDATE SET data=$2,updated_at=NOW()`, [key, JSON.stringify(val)]);
+      }
+    }
     res.json({ ok: true });
   } catch (e) { console.error('POST /sync:', e.message); res.status(500).json({ error: e.message }); }
 });
@@ -172,21 +241,27 @@ app.post('/sync', async (req, res) => {
 // ── FULL PULL ──
 app.get('/pull', async (req, res) => {
   try {
-    const [heats, shifts, logs, checks, settings] = await Promise.all([
+    const [heats, shifts, logs, checks, settings, clients, sales, targets] = await Promise.all([
       pool.query('SELECT data FROM py_heats ORDER BY created_at DESC'),
       pool.query('SELECT data FROM py_shifts ORDER BY created_at DESC'),
       pool.query('SELECT data FROM py_hourly_logs ORDER BY created_at DESC'),
       pool.query('SELECT data FROM py_checklists ORDER BY created_at DESC'),
       pool.query('SELECT key, data FROM py_settings'),
+      pool.query('SELECT data FROM py_clients ORDER BY created_at DESC'),
+      pool.query('SELECT data FROM py_sales ORDER BY created_at DESC'),
+      pool.query('SELECT key, data FROM py_targets'),
     ]);
-    const settingsObj = {};
-    settings.rows.forEach(r => { settingsObj[r.key] = r.data; });
+    const settingsObj = {}; settings.rows.forEach(r => { settingsObj[r.key] = r.data; });
+    const targetsObj = {}; targets.rows.forEach(r => { targetsObj[r.key] = r.data; });
     res.json({
       heats: heats.rows.map(r => r.data),
       shifts: shifts.rows.map(r => r.data),
       hourlyLogs: logs.rows.map(r => r.data),
       checklists: checks.rows.map(r => r.data),
       settings: settingsObj,
+      clients: clients.rows.map(r => r.data),
+      sales: sales.rows.map(r => r.data),
+      targets: targetsObj,
     });
   } catch (e) { console.error('GET /pull:', e.message); res.status(500).json({ error: e.message }); }
 });
