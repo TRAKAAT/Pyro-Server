@@ -97,7 +97,7 @@ app.post('/hourly-logs', async (req, res) => {
     const logs = Array.isArray(req.body) ? req.body : [req.body];
     for (const l of logs) {
       if (!l.id) continue;
-      await pool.query(`INSERT INTO py_hourly_logs(id,data) VALUES($1,$2) ON CONFLICT(id) DO NOTHING`, [l.id, JSON.stringify(l)]);
+      await pool.query(`INSERT INTO py_hourly_logs(id,data) VALUES($1,$2) ON CONFLICT(id) DO UPDATE SET data=$2`, [l.id, JSON.stringify(l)]);
     }
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
@@ -209,7 +209,7 @@ app.post('/sync', async (req, res) => {
     }
     if (hourlyLogs?.length) for (const l of hourlyLogs) {
       if (!l?.id) continue;
-      await pool.query(`INSERT INTO py_hourly_logs(id,data) VALUES($1,$2) ON CONFLICT(id) DO NOTHING`, [l.id, JSON.stringify(l)]);
+      await pool.query(`INSERT INTO py_hourly_logs(id,data) VALUES($1,$2) ON CONFLICT(id) DO UPDATE SET data=$2`, [l.id, JSON.stringify(l)]);
     }
     if (checklists?.length) for (const c of checklists) {
       if (!c?.id) continue;
